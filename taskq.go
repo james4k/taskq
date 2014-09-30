@@ -27,10 +27,12 @@ func (t Func) Do() error {
 // Queue manages a fixed-sized queue of tasks to be executed at a fixed
 // rate by a number of parallel workers.
 type Queue struct {
+	size          int
 	taskc         chan Task
 	waitg         sync.WaitGroup
 	tickermu      sync.Mutex
 	ticker        *time.Ticker
+	interval      time.Duration
 	retries       int
 	retrydelay    time.Duration
 	retrymaxdelay time.Duration
@@ -42,8 +44,8 @@ var errWorkersLessThanOne = errors.New("taskq: workers less than one")
 // less than zero.
 func New(size int) *Queue {
 	q := &Queue{
-		taskc:         make(chan Task, size),
-		ticker:        time.NewTicker(time.Second),
+		size:          size,
+		interval:      1 * time.Second,
 		retrydelay:    1 * time.Second,
 		retrymaxdelay: 5 * time.Minute,
 	}
@@ -56,6 +58,8 @@ func (q *Queue) Start(n int) {
 	if n < 1 {
 		panic(errWorkersLessThanOne)
 	}
+	q.taskc = make(chan Task, q.size)
+	q.ticker = time.NewTicker(q.interval)
 	q.waitg.Add(n)
 	for i := 0; i < n; i++ {
 		go q.worker()
@@ -80,8 +84,11 @@ func (q *Queue) Stop() {
 func (q *Queue) SetInterval(dur time.Duration) {
 	q.tickermu.Lock()
 	defer q.tickermu.Unlock()
-	q.ticker.Stop()
+	if q.ticker != nil {
+		q.ticker.Stop()
+	}
 	q.ticker = time.NewTicker(dur)
+	q.interval = dur
 }
 
 // SetRetries sets maximum number of retries before dropping a task.  If
